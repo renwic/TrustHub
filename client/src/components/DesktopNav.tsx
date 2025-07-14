@@ -2,6 +2,7 @@ import { Link, useLocation } from "wouter";
 import { Shield, MessageCircle, User, Search, Users, Heart, ChevronDown, Settings, HelpCircle, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import NotificationBell from "@/components/NotificationBell";
+import { logout } from "@/lib/authUtils";
 import { useState, useRef, useEffect } from "react";
 
 export default function DesktopNav() {
@@ -136,7 +137,7 @@ export default function DesktopNav() {
                   <div className="border-t border-gray-200 my-1"></div>
                   <button 
                     className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                    onClick={() => window.location.href = "/api/logout"}
+                    onClick={logout}
                   >
                     Sign Out
                   </button>
