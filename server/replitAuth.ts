@@ -137,16 +137,7 @@ export async function setupAuth(app: Express) {
     });
   });
 
-  app.get("/api/logout", (req, res) => {
-    req.logout(() => {
-      res.redirect(
-        client.buildEndSessionUrl(config, {
-          client_id: process.env.REPL_ID!,
-          post_logout_redirect_uri: `${req.protocol}://${req.hostname}`,
-        }).href
-      );
-    });
-  });
+  // Note: /api/logout route handled by general auth system in auth.ts to support all auth providers
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
