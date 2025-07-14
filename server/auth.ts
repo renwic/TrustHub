@@ -31,16 +31,58 @@ const getOidcConfig = memoize(
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
   
-  // Try memory store for debugging
+  // Always use PostgreSQL session store when DATABASE_URL is available
+  if (process.env.DATABASE_URL) {
+    console.log('Configuring PostgreSQL session store for production');
+    try {
+      const pgStore = connectPg(session);
+      const sessionStore = new pgStore({
+        conString: process.env.DATABASE_URL,
+        createTableIfMissing: true,
+        ttl: Math.floor(sessionTtl / 1000), // TTL in seconds
+        tableName: "sessions",
+        pruneSessionInterval: 60, // Clean up every 60 seconds
+      });
+      
+      // Test the store connection
+      sessionStore.on('connect', () => {
+        console.log('✅ PostgreSQL session store connected successfully');
+      });
+      
+      sessionStore.on('disconnect', () => {
+        console.log('⚠️ PostgreSQL session store disconnected');
+      });
+      
+      return session({
+        secret: process.env.SESSION_SECRET!,
+        store: sessionStore,
+        resave: false,
+        saveUninitialized: false,
+        name: 'connect.sid',
+        cookie: {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+          maxAge: sessionTtl,
+        },
+      });
+    } catch (error) {
+      console.error('❌ Failed to initialize PostgreSQL session store:', error);
+      console.log('Falling back to MemoryStore');
+    }
+  }
+  
+  // Development fallback with MemoryStore
+  console.log('Using MemoryStore for development (DATABASE_URL not found)');
   return session({
     secret: process.env.SESSION_SECRET!,
     resave: false,
-    saveUninitialized: true, // Changed to true for debugging
-    name: 'connect.sid', // Use default name
+    saveUninitialized: false,
+    name: 'connect.sid',
     cookie: {
-      httpOnly: false, // Temporary for debugging
+      httpOnly: true,
       secure: false,
-      sameSite: 'none', // Changed for cross-origin in Replit
+      sameSite: 'lax',
       maxAge: sessionTtl,
     },
   });
@@ -77,6 +119,24 @@ async function upsertUser(
 
 export async function setupAuth(app: Express) {
   app.set("trust proxy", 1);
+  
+  // Add CORS middleware for authentication
+  app.use((req, res, next) => {
+    const origin = req.get('origin');
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+    }
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cookie');
+    
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(200);
+      return;
+    }
+    next();
+  });
+  
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
@@ -320,9 +380,15 @@ function setupAuthRoutes(app: Express, config: any) {
     }
   });
 
-  // Universal logout
-  app.get("/api/auth/logout", (req, res) => {
+  // Universal logout routes (both /api/logout and /api/auth/logout)
+  const logoutHandler = (req: any, res: any) => {
     const user = req.user as any;
+    
+    // Clear session data for token-based auth
+    if (req.session) {
+      req.session.authToken = null;
+      req.session.userId = null;
+    }
     
     req.logout(() => {
       if (user?.provider === "replit") {
@@ -338,7 +404,10 @@ function setupAuthRoutes(app: Express, config: any) {
         res.redirect("/");
       }
     });
-  });
+  };
+
+  app.get("/api/logout", logoutHandler);
+  app.get("/api/auth/logout", logoutHandler);
 
   // No legacy routes - use direct auth endpoints
 }
