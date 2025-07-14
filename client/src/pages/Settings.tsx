@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { isUnauthorizedError } from "@/lib/authUtils";
+import { isUnauthorizedError, logout } from "@/lib/authUtils";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
 import DesktopNav from "@/components/DesktopNav";
@@ -211,7 +211,7 @@ export default function Settings() {
   };
 
   const handleLogout = () => {
-    window.location.href = "/api/logout";
+    logout();
   };
 
   return (
