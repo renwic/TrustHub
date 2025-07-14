@@ -31,27 +31,30 @@ const getOidcConfig = memoize(
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
   
-  // Always use PostgreSQL session store when DATABASE_URL is available
-  if (process.env.DATABASE_URL) {
-    console.log('Configuring PostgreSQL session store for production');
+  // Production PostgreSQL session store with proper SSL handling
+  if (process.env.DATABASE_URL && process.env.NODE_ENV === 'production') {
+    console.log('Attempting PostgreSQL session store for production...');
     try {
+      const { Pool } = require('pg');
       const pgStore = connectPg(session);
+      
+      // Create a pool with SSL configuration for session store
+      const pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: {
+          rejectUnauthorized: false // Required for managed PostgreSQL services
+        }
+      });
+      
       const sessionStore = new pgStore({
-        conString: process.env.DATABASE_URL,
+        pool: pool, // Use the configured pool instead of connection string
         createTableIfMissing: true,
-        ttl: Math.floor(sessionTtl / 1000), // TTL in seconds
+        ttl: Math.floor(sessionTtl / 1000),
         tableName: "sessions",
-        pruneSessionInterval: 60, // Clean up every 60 seconds
+        pruneSessionInterval: 60,
       });
       
-      // Test the store connection
-      sessionStore.on('connect', () => {
-        console.log('✅ PostgreSQL session store connected successfully');
-      });
-      
-      sessionStore.on('disconnect', () => {
-        console.log('⚠️ PostgreSQL session store disconnected');
-      });
+      console.log('✅ PostgreSQL session store configured with SSL');
       
       return session({
         secret: process.env.SESSION_SECRET!,
@@ -61,19 +64,21 @@ export function getSession() {
         name: 'connect.sid',
         cookie: {
           httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+          secure: true,
+          sameSite: 'none',
           maxAge: sessionTtl,
         },
       });
     } catch (error) {
-      console.error('❌ Failed to initialize PostgreSQL session store:', error);
-      console.log('Falling back to MemoryStore');
+      console.error('❌ PostgreSQL session store failed:', error.message);
+      console.log('🔄 Falling back to MemoryStore for now');
     }
   }
   
-  // Development fallback with MemoryStore
-  console.log('Using MemoryStore for development (DATABASE_URL not found)');
+  // Development or fallback session configuration
+  const isProduction = process.env.NODE_ENV === 'production';
+  console.log(isProduction ? '⚠️ Using MemoryStore in production (PostgreSQL failed)' : '🔧 Using MemoryStore for development');
+  
   return session({
     secret: process.env.SESSION_SECRET!,
     resave: false,
@@ -81,8 +86,8 @@ export function getSession() {
     name: 'connect.sid',
     cookie: {
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
       maxAge: sessionTtl,
     },
   });
